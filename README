@@ -1,0 +1,116 @@
+CONSTANTINESCU CIPRIAN - 343C1
+
+--- Sobel Edge Detection ---
+
+---> Implementare secventiala
+Pentru a putea procesa imagini, am folosit structurile bmp_infoheader, bmp_fileheader 
+si pixel din bmp_header.h(pe care l-am folosit de asemenea la o tema anterioara de la 
+Programarea Calculatoarelor), si anume bmp_infoheader, bmp_fileheader si pixel, structuri 
+ajutatoare pentru citirea si scrierea fisierelor .bmp. Astfel, am implementat functiile:L
+    - read_bmp, care citeste un fisier .bmp, creand un bmp_fileheader, bmp_infoheader si
+        o matrice de pixeli(cu campurile r, g, b), care va fi folosita ulterior
+    - write_bmp, care scrie intr-un fisier imaginea .bmp rezultata, folosind aceleasi 3
+        structuri
+
+Apoi, dupa citirea fisierului .bmp furnizat ca argument in linia de comanda, urmeaza
+aplicarea algoritmului(in functie sobel_edge_detection).
+
+Intrucat algoritmul Sobel Edge Detection functioneaza cel mai bine pe imagini alb-negru, un
+prim pas ar fi ca imaginea sa fie transformata in alb-negru(grayscale), simplu trebuind
+facuta media celor 3 componente(r,g,b) ale pixelului, acestea urmand a deveni egale cu 
+aceasta medie.
+
+Apoi, algoritmul consta in aplicarea a doua masti:
+    x-direction kernel:                 y-direction kernel:
+        | -1, 0, 1 |                        |-1, -2, -1|
+        | -2, 0, 2 |                        | 0,  0,  0|
+        | -1, 0, 1 |                        | 1,  2,  1|
+
+Astfel, pentru fiecare pixel vor fi calculate cele 2 valori obtinute dupa aplicarea
+mastilor, urmand a fi combinate mai apoi pentru a obtine valoarea finala, atribuite
+fiecarei componente ale pixelului rezultat:
+    sqrt(xval^2 + yval^2))
+
+Trebuie avut in vedere ca mastile nu pot fi aplicate pentru pixelii din limitele/marginile
+matricii, astfel ca pixelii din margini vor avea valorea(0,0,0)-culoarea negru.
+De asemenea, valorile trebuiesc limitate in intervalul [0, 255].
+
+Astfel, va fi obtinuta o noua matrice de pixeli continand valorile obtinute dupa aplicarea
+algoritmului, aceasta urmand a fi folosita pentru printarea imaginii asociate.
+
+
+---> OpenMP
+Pentru implementarea folosind openMP, am paralelizat forul exterior din parcurgerea 
+matricii, atat pentru transformarea imaginii in alb-negru, cat si pentru aplicarea
+algoritmului mai apoi. Am folosit astfel instructiuni de tip "#pragma omp parallel for".
+
+---> MPI
+Pentru implementarea folosind MPI, am decis ca un singur proces(rank=MASTER) ar trebui sa
+citeasca fisierul mentionat, urmand apoi sa trimita informatiile citite catre celelalte
+procese. Pentru trimiterea/primirea unei matrici de pixeli, am creat un MPI_Datatype 
+corespunzator unui pixel(functie create_MPI_pixel_type), folosit apoi pentru mentionarea
+tipului datelor trimise/primite in MPI_Recv/MPI_Send.
+
+Apoi, dupa ce toate procesele au informatiile despre imagine, poate incepe aplicarea
+algoritmului, fiecare proces avand asociata o parte din matrice, delimitata de indicii
+start si end pentru linii, care sunt calculati in functie de rank-ul procesului.
+Dupa ce fiecare proces a terminat de procesat partea sa de matrice, procesul MASTER
+va primi de la celelalte procese rezultatele obtinute(cate o portiune din matricea
+obtinuta), acesta urmand astfel sa formeze matricea finala, pe care o va trimite mai
+apoi si celorlalte procese, pentru sincronizare.
+
+Dupa ce matricea de pixeli finala a fost obtinuta, aceasta va fi folosita de procesul
+cu rank==MASTER pentru a printa imaginea rezultata.
+
+---> Pthreads
+Pentru implementarea folosind pthreads, am ajustat functia sobel_edge_detection, care
+va fi asociata fiecarui thread la creare. Am creat structura thread_args pentru argumentele
+necesare functiei:
+    -id: id-ul thread-ului
+    -bitmap: matricea de pixeli initiala
+    -height: inaltimea imaginii/numarul de randuri din matrice
+    -width: latimea imaginii/numarul de coloane din matrice
+    -new_map: matricea care va contine rezultatul obtinut(pentru care va fi alocata 
+              memorie initial)
+Astfel, fiecare thread va avea asociata o portiune din matrice, delimitata de indicii
+start si end pentru linii, care sunt calculati in functie de id-ul thread-ului.
+
+---> Varianta hibrida 1: MPI-OpenMP
+Pentru implementarea variantei hibride cu MPI si OpenMP, am pornit de la implementarea
+algoritmului folosind MPI, pentru care am mai paralelizat for-ul exterior pentru
+parcurgerea matricii pe linii folosind instructiuni de tip "#pragma omp parallel for".
+
+---> Varianta hibrida 2: MPI-Pthreads
+Am pornit tot de la implementarea cu MPI, iar, similar cu varianta hibrida cu openMP,
+am paralelizat for-ul exterior, folosind insa pthreads. Pentru acest lucru, am creat
+functiile bw_thread_func(pentru transformarea imaginii in alb-negru) si sobel_thread_func
+(pentru aplicarea algoritmului de edge detection), astfel ca, atat pentru transformarea
+imaginii initiale in alb-negru, cat si ulterior, pentru aplicarea algoritmului propriu-zis,
+vor fi create threaduri pentru paralelizare.
+Astfel, am creat structura thread_args pentru argumentele functiilor asociate threadurilor
+la creare, aceasta avand campurile:
+    -id: id-ul thread-ului
+    -bitmap: matricea de pixeli initiala
+    -height: inaltimea imaginii/numarul de randuri din matrice
+    -width: latimea imaginii/numarul de coloane din matrice
+    -start: indicele de start pentru procesul MPI din care se creaza thread-ul
+    -end: indicele de end pentru procesul MPI din care se creaza thread-ul
+    -new_map: matricea care va contine rezultatul obtinut(pentru care va fi alocata 
+              memorie initial)
+
+Paralelizarea se va realiza impartind pe noi portiuni, mai mici, portiunea asociata
+procesului MPI. Astfel, fiecare thread va avea indicii de linie thread_start si thread_end,
+calculati in functie de id-ul thread-ului.
+
+
+--->Rulare
+In makefile am adaugat reguli de build/run pentru fiecare varianta in parte.
+Pentru a testa cu o anumita imagine(.bmp) poate fi modificata variabila BMP_FILE din
+makefile cu calea catre imaginea dorita.
+Pot fi rulate toate variantele folosind:
+    make run
+
+
+Am inclus in arhiva o imagine cu care poate fi testat, insa nu de dimensiuni prea mari.
+Poate fi descarcata o imagine de dimensiuni mai mari accesand link-ul:
+https://drive.google.com/drive/u/0/folders/1E8N8nJp-W4IihUXH5Au_rds3vx9cfR5D
